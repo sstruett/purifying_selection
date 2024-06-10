@@ -1,2 +1,4 @@
-# purifying_selection
-All scripts to perform the research of the corresponding manuscript.
+# Scripts and workflows used in the paper "A generalized structured coalescent for purifying selection without recombination"
+
+
+
