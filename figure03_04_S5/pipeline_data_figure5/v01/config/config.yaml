@@ -1,0 +1,38 @@
+# The parameters are: [N, s, U, nrep]  # for the python numpy simulator
+# The parameters are: [nrep, npair]  # for the simulations of slim
+
+simulation:
+  parameters:
+    # N = 5000; U = 0.006; s variable
+    - [5_000, 0, 0.006, 100]
+    - [5_000, 1e-4, 0.006, 100]
+    - [5_000, 4e-4, 0.006, 100]
+    - [5_000, 1e-2, 0.006, 100]
+    # N = 5000; s = 2e-3; U variable
+    - [5_000, 2e-3, 1e-4, 100]
+    - [5_000, 2e-3, 4e-3, 100]
+    #- [5_000, 2e-3, 6e-3, 100]  # have it for N var already
+    - [5_000, 2e-3, 1e-2, 100]
+    # s = 2e-3; U = 0.006, N variable
+    - [500, 2e-3, 0.006, 100]
+    - [2_000, 2e-3, 0.006, 100]
+    - [5_000, 2e-3, 0.006, 100]
+    - [20_000, 2e-3, 0.006, 100]
+
+  slim:
+    # N = 5000; U = 0.006; s variable
+    - [500, 1000]
+    - [500, 1000]
+    - [500, 1000]
+    - [500, 1000]
+    # N = 5000; s = 2e-3; U variable
+    - [500, 1000]
+    - [500, 1000]
+    #- [500, 1000]  # have it for N var already
+    - [500, 1000]
+    # s = 2e-3; U = 0.006, N variable
+    - [500, 1000]
+    - [500, 1000]
+    - [500, 1000]
+    - [500, 1000]
+

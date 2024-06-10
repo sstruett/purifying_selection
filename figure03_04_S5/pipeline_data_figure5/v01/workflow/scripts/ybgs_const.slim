@@ -1,0 +1,89 @@
+/*
+Set up a Y-BGS simulations
+
+This is supposed to be a simulation with purifying selection.
+After equilibration, the treeseq is output, population is of constant size.
+*/
+initialize() {
+	// Init message
+	catn("STARTING SLIM SIMULATION");
+	
+	
+	initializeTreeSeq();
+	
+	
+	// if we're running in SLiMgui, open a plot window
+	if (exists("slimgui")){
+		catn("We are running with the GUI!");
+		defineConstant("seed", 0);
+		defineConstant("NPRES", "500");  // coalescent perspective
+		defineConstant("TMAX", "10");  // in units of NPRES
+		
+		defineConstant("s", "0.0004");
+		defineConstant("Ud", "0.006");
+		
+		defineConstant("L", "15000");
+		
+		//defineConstant("burnin", "10");  // in units of NANC
+		//defineConstant("outfreq", "1000");  // frequency of outputting the treeseq to obtain the coalescence density
+		defineConstant("outputfile", "test.treeseq");
+		//setwd("/Users/abgushtdizi/Dropbox/professional/postdoc1/academic/data_analysis/Y-BGS/simulator/dev");
+	
+	}
+	
+	
+	// seed
+	//setSeed(seed);
+	
+
+	//defineConstant("L", 15000);  // this shall be the length of mtDNA (numbers of sites under selection)
+	// define mutation rate, but set zero if no selection
+	if (asFloat(s) == 0) {
+		defineConstant("mu", 0);
+	} else {
+		defineConstant("mu", asFloat(Ud)/asFloat(L));  // this is the per site mutation rate
+	}
+		
+	
+	// mutation; m1 mutation type: selective
+	initializeMutationRate(asFloat(mu));
+	initializeMutationType("m1", 1, "f", -1*asFloat(s));
+	initializeGenomicElementType("g1", m1, 1.0);
+	
+	
+	// chromosome model
+	initializeGenomicElement(g1, 0, asInteger(asFloat(L)-1));
+	initializeRecombinationRate(0);
+}
+
+
+1 early() {
+	sim.addSubpop("p1", asInteger(NPRES));
+	catn("CREATED POPULATION OF SIZE: " + asString(NPRES));
+	p1.setCloningRate(1.0);
+}
+
+
+late() {
+	// remove any new mutations added to the disabled diploid genomes
+	sim.subpopulations.individuals.genome2.removeMutations();
+}
+
+
+// check if simulation can be finished
+late() {
+	if (sim.cycle >= asFloat(TMAX) * asFloat(NPRES)) {
+		catn(sim.cycle + ": OUTPUT TREES");
+	
+		// coalescence density can be calculated from the output treeseq
+		path = paste0(outputfile);
+		sim.treeSeqOutput(path);
+	
+		catn(sim.cycle + ": SIMULATION FINISHED");
+		sim.simulationFinished();
+	}
+}
+
+500000 late() {
+	stop("Stopped simulation after 500000 generations!");
+}

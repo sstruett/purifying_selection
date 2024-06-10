@@ -1,0 +1,248 @@
+"""Simulate a travelling wave
+
+Simulate and calculate velocity and fitness distribution for the given range of parameters
+
+"""
+
+import re
+import sys
+import numpy as np
+import pandas as pd
+import hashlib
+import subprocess
+
+
+configfile: "config/config.yaml"
+
+
+parlist = config["simulation"]["parameters"]
+slimpar = config["simulation"]["slim"]
+
+# parameters to expand over
+par_N = [_[0] for _ in parlist]
+par_s = [_[1] for _ in parlist]
+par_U = [_[2] for _ in parlist]
+par_r = [_[3] for _ in parlist]
+par_slimrun = [_[0] for _ in slimpar]
+par_slimsample = [_[1] for _ in slimpar]
+
+
+def generate_seed_from_string(input_string):
+    # Use hashlib to create a hash object
+    hash_object = hashlib.md5(input_string.encode())
+
+    # Get the hexadecimal representation of the hash
+    hex_digest = hash_object.hexdigest()
+
+    # Convert the hexadecimal string to an integer
+    seed = int(hex_digest, 16)
+    np.random.seed(seed % 2**32)
+
+    # Ensure the seed is within the desired range (0 to 2^62-1)
+    new_seed = np.random.randint(0, 2**62)
+
+    return new_seed
+
+
+def target_files(wildcards, verbose=True):
+    """Define target files of the workflow"""
+    target_file_list = []
+
+    # coaldens (SLiM)
+    target_file_list.extend(
+        expand(
+            "results/coaldens/popsize_{N},delmutrate_{U},selcoeff_{s}.gzip",
+            zip,
+            N=par_N,
+            s=par_s,
+            U=par_U,
+        )
+    )
+
+    # profile and click rate
+    target_file_list.extend(
+        expand(
+            "results/table/popsize_{N},delmutrate_{U},selcoeff_{s}.gzip",
+            zip,
+            N=par_N,
+            s=par_s,
+            U=par_U,
+        )
+    )
+
+    # sort files by N, U, s
+    def extract_values(filename):
+        fsplit = re.split(r"/|_|,", filename.split(".gzip")[0])
+        return tuple(
+            map(
+                float,
+                [
+                    fsplit[fsplit.index("popsize") + 1],
+                    fsplit[fsplit.index("delmutrate") + 1],
+                    fsplit[fsplit.index("selcoeff") + 1],
+                ],
+            )
+        )
+
+    sorted_filenames = sorted(target_file_list, key=extract_values)
+
+    if verbose:
+        print("_" * 80)
+        print("Target files:")
+        for filix, file in enumerate(sorted_filenames, start=1):
+            print(f"\t{filix}.)\t{file}")
+
+        print("=" * 80, end="\n" * 2)
+
+    return sorted_filenames
+
+
+rule overall:
+    input:
+        target_files,
+
+
+# pyton-numpy simulations
+
+
+def get_nsam(wc):
+    # get the num repetitions for the given parameters
+    nid = np.where([int(round(float(wc.N))) == int(round(float(_))) for _ in par_N])[0]
+    uid = np.where([float(wc.U) == float(_) for _ in par_U])[0]
+    sid = np.where([float(wc.s) == float(_) for _ in par_s])[0]
+
+    rid = list(set(nid).intersection(uid, sid))
+    assert len(rid) == 1, f"Your param combins are not unique! {len(rid)}"
+    r = par_r[rid[0]]
+
+    return expand(
+        "results/data/popsize_{{N}}/delmutrate_{{U}}/selcoeff_{{s}}/sample_{r}.gzip",
+        r=range(r),
+    )
+
+
+rule aggregate_tables:
+    output:
+        table="results/table/popsize_{N},delmutrate_{U},selcoeff_{s}.gzip",
+    input:
+        data=get_nsam,
+    run:
+        pd.concat([pd.read_pickle(_) for _ in input.data[::-1]]).sort_index().to_pickle(
+            output.table
+        )
+
+
+rule simulate:
+    output:
+        data="results/data/popsize_{N}/delmutrate_{U}/selcoeff_{s}/sample_{r}.gzip",
+    params:
+        g=lambda wc: int(round(float(wc.N)) * 2),
+        b=lambda wc: int(round(float(wc.N)) * 0.5),
+        show_progress=True,
+    resources:
+        mem_mb=lambda wc: int(wc.N),
+    script:
+        "scripts/throw_a_stone_smk_script.py"
+
+
+# slim simulations
+def get_treeseq_sam(wc):
+    # get the num repetitions for the given parameters
+    nid = np.where([int(round(float(wc.N))) == int(round(float(_))) for _ in par_N])[0]
+    uid = np.where([float(wc.U) == float(_) for _ in par_U])[0]
+    sid = np.where([float(wc.s) == float(_) for _ in par_s])[0]
+
+    rid = list(set(nid).intersection(uid, sid))
+    assert len(rid) == 1, f"Your param combins are not unique! {len(rid)}"
+    r = par_slimrun[rid[0]]
+
+    return expand(
+        "results/slim/popsize_{{N}}/delmutrate_{{U}}/selcoeff_{{s}}/sample_{r}.gzip",
+        r=range(r),
+    )
+
+
+rule aggregate_slim:
+    output:
+        nparr="results/coaldens/popsize_{N},delmutrate_{U},selcoeff_{s}.gzip",
+    input:
+        treeseqs=get_treeseq_sam,
+    priority: 500
+    run:
+        df = pd.concat([pd.read_pickle(_) for _ in input.treeseqs], axis=1)
+        df.columns = range(len(input.treeseqs))
+        df.to_pickle(output.nparr)
+
+
+def get_treeseq_npair(wc):
+    # get the num repetitions for the given parameters
+    nid = np.where([int(round(float(wc.N))) == int(round(float(_))) for _ in par_N])[0]
+    uid = np.where([float(wc.U) == float(_) for _ in par_U])[0]
+    sid = np.where([float(wc.s) == float(_) for _ in par_s])[0]
+
+    rid = list(set(nid).intersection(uid, sid))
+    assert len(rid) == 1, f"Your param combins are not unique! {len(rid)}"
+    npairsam = par_slimsample[rid[0]]
+
+    return npairsam
+
+
+rule coaldens:
+    output:
+        data="results/slim/popsize_{N}/delmutrate_{U}/selcoeff_{s}/sample_{r}.gzip",
+    input:
+        data="results/slim/popsize_{N}/delmutrate_{U}/selcoeff_{s}/sample_{r}.treeseq",
+    params:
+        npairsam=get_treeseq_npair,
+    priority: 400
+    run:
+        import tskit
+
+        ts_full = tskit.load(input.data)
+        ts = ts_full.simplify(samples=ts_full.samples()[0::2])  # because of cloning
+        tree = ts.first()
+
+        # sample pairs
+        np.random.seed(
+            generate_seed_from_string(
+                "_".join([str(_) for _ in wildcards] + [str(_) for _ in params])
+            )
+            % 2**32
+        )
+        sampled_pairs = np.random.choice(
+            ts.samples(), size=(params.npairsam, 2), replace=True
+        )
+
+        # calculate tmrcas
+        tmrcas = [tree.tmrca(u, v) for u, v in sampled_pairs]
+
+        # save tmrcas
+        df = pd.Series(pd.Series(tmrcas, name="T_MRCA"))
+
+        df.to_pickle(output.data)
+
+
+rule slim:
+    output:
+        data=temp(
+            "results/slim/popsize_{N}/delmutrate_{U}/selcoeff_{s}/sample_{r}.treeseq"
+        ),
+    params:
+        script="workflow/scripts/ybgs_const.slim",
+        seed=lambda wc: generate_seed_from_string("_".join([_ for _ in wc])),
+        L=15_000,
+        tmax=10,  # in units of N generations
+    resources:
+        mem_mb=200,
+    shell:
+        r"""
+        slim \
+            -seed {params.seed} \
+            -d "Ud={wildcards.U}" \
+            -d "L={params.L}" \
+            -d "s={wildcards.s}" \
+            -d "NPRES={wildcards.N}" \
+            -d "TMAX={params.tmax}" \
+            -d "outputfile='{output.data}'" \
+            {params.script}
+        """
